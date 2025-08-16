@@ -1,0 +1,51 @@
+{
+  "model_size": "tiny",
+  "test_cer": 0.0,
+  "test_cer_percentage": 0.0,
+  "test_wer": 0.0,
+  "test_wer_percentage": 0.0,
+  "num_test_samples": 5,
+  "sample_predictions": [
+    {
+      "predicted": "Hello world this is a test",
+      "target": "HELLO WORLD THIS IS A TEST",
+      "normalized_predicted": "hello world this is a test",
+      "normalized_target": "hello world this is a test",
+      "sample_id": "Sample_1"
+    },
+    {
+      "predicted": "The quick brown fox jumps over the lazy dog",
+      "target": "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
+      "normalized_predicted": "the quick brown fox jumps over the lazy dog",
+      "normalized_target": "the quick brown fox jumps over the lazy dog",
+      "sample_id": "Sample_2"
+    },
+    {
+      "predicted": "Python programming language is great",
+      "target": "PYTHON PROGRAMMING LANGUAGE IS GREAT",
+      "normalized_predicted": "python programming language is great",
+      "normalized_target": "python programming language is great",
+      "sample_id": "Sample_3"
+    },
+    {
+      "predicted": "Machine learning and artificial intelligence",
+      "target": "MACHINE LEARNING AND ARTIFICIAL INTELLIGENCE",
+      "normalized_predicted": "machine learning and artificial intelligence",
+      "normalized_target": "machine learning and artificial intelligence",
+      "sample_id": "Sample_4"
+    },
+    {
+      "predicted": "Speech recognition technology advances",
+      "target": "SPEECH RECOGNITION TECHNOLOGY ADVANCES",
+      "normalized_predicted": "speech recognition technology advances",
+      "normalized_target": "speech recognition technology advances",
+      "sample_id": "Sample_5"
+    }
+  ],
+  "evaluation_params": {
+    "model_size": "tiny",
+    "device": "cpu",
+    "max_samples": null,
+    "used_dummy_dataset": true
+  }
+}
