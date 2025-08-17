@@ -103,19 +103,14 @@ class WhisperClassifier(nn.Module):
         return self
 
     def forward(self, mel_spec):
-        # mel_spec shape expected: (batch_size, 80, 3000)
-        # Some Whisper wrappers expect (batch, seq_len, feature) or similar;
-        # the HuggingFace wrapper below uses model.model.encoder(mel_spec) directly.
+        # mel_spec shape expected: (batch_size, 80, 3000) coming from AudioDataset/DataLoader
         audio_features = self.whisper.embed_audio(mel_spec)
-        # audio_features shape assumed: (batch, seq_len, dim) or (batch, dim, seq_len)
-        # We will average across sequence/time dimension. Try both possibilities safely.
+        # audio_features shape assumed: (batch, seq_len, dim) -> mean over seq_len
         if audio_features.dim() == 3:
-            # (batch, seq_len, dim) -> mean over seq_len
             pooled_features = torch.mean(audio_features, dim=1)
         elif audio_features.dim() == 2:
             pooled_features = audio_features
         else:
-            # fallback: flatten last two dims -> (batch, dim)
             pooled_features = audio_features.view(audio_features.size(0), -1)
 
         logits = self.classifier(pooled_features)
@@ -135,7 +130,6 @@ def evaluate_pretrained_model(model, test_loader, idx_to_label, device='cpu', n_
     with torch.no_grad():
         for audio_batch, labels_batch in tqdm(test_loader, desc="Evaluating Pretrained Model"):
             # audio_batch: (batch, 80, 3000)
-            # Move to device
             audio_batch = audio_batch.to(device)
             labels_batch = labels_batch.to(device)
 
@@ -298,12 +292,14 @@ def main():
         class HuggingFaceWhisperWrapper:
             def __init__(self, model):
                 self.model = model
-                # Get dimensions from the model config if present, else fallback
                 cfg = model.config
+                # read expected dims from config
+                self.expected_seq_len = getattr(cfg, 'max_source_positions', 3000)
+                self.expected_n_mels = getattr(cfg, 'num_mel_bins', 80)
                 self.dims = type('Dims', (), {
                     'n_audio_state': getattr(cfg, 'd_model', 384),
-                    'n_mels': getattr(cfg, 'num_mel_bins', 80),
-                    'n_audio_ctx': getattr(cfg, 'max_source_positions', 3000),
+                    'n_mels': self.expected_n_mels,
+                    'n_audio_ctx': self.expected_seq_len,
                     'n_audio_head': getattr(cfg, 'encoder_attention_heads', 6),
                     'n_audio_layer': getattr(cfg, 'encoder_layers', 4)
                 })()
@@ -313,17 +309,72 @@ def main():
                 return self
 
             def embed_audio(self, mel_spec):
-                # Some HF wrappers expect input_features shape; ensure dtype and device match
-                # mel_spec: (batch, 80, 3000) -> many HF implementations expect (batch, seq_len, feature)
-                # We'll try to match what the HF encoder expects by transposing if needed.
+                """
+                Ensure mel_spec ends up as (batch, seq_len=self.expected_seq_len, feat=self.expected_n_mels)
+                HuggingFace Whisper encoder expects shape (batch, seq_len, feature).
+                Accept input in (batch, 80, 3000) or (batch, 3000, 80) and pad/trim time dim to expected_seq_len.
+                """
                 x = mel_spec
-                # If mel_spec is (batch, 80, 3000) -> transpose to (batch, 3000, 80)
-                if x.dim() == 3 and x.shape[1] == 80:
-                    x = x.transpose(1, 2).contiguous()
-                # Ensure dtype matches model
-                x = x.to(dtype=self.model.dtype, device=next(self.model.parameters()).device)
+
+                # convert to torch tensor if not already
+                if not isinstance(x, torch.Tensor):
+                    x = torch.tensor(x)
+
+                # ensure float dtype
+                x = x.float()
+
+                b = x.shape[0]
+
+                # handle the common shapes robustly
+                if x.dim() == 3:
+                    d1, d2 = x.shape[1], x.shape[2]
+
+                    # Case A: (batch, 80, time)
+                    if d1 == self.expected_n_mels:
+                        time = d2
+                        if time < self.expected_seq_len:
+                            pad = torch.zeros((b, d1, self.expected_seq_len - time), dtype=x.dtype, device=x.device)
+                            x = torch.cat([x, pad], dim=2)
+                        elif time > self.expected_seq_len:
+                            x = x[:, :, :self.expected_seq_len]
+                        # transpose to (batch, seq_len, feat)
+                        x = x.transpose(1, 2).contiguous()
+
+                    # Case B: (batch, time, 80)
+                    elif d2 == self.expected_n_mels:
+                        time = d1
+                        if time < self.expected_seq_len:
+                            pad = torch.zeros((b, self.expected_seq_len - time, d2), dtype=x.dtype, device=x.device)
+                            x = torch.cat([x, pad], dim=1)
+                        elif time > self.expected_seq_len:
+                            x = x[:, :self.expected_seq_len, :]
+
+                    # Unexpected shape: attempt to coerce by treating second as time if small
+                    else:
+                        # try to reshape by making last dim expected_n_mels if possible
+                        if d1 == self.expected_seq_len:
+                            # already (batch, seq_len, feat_unknown) -> hope feat_unknown==expected_n_mels
+                            pass
+                        else:
+                            # fallback: pad/trunc along last dimension to match expected_seq_len*expected_n_mels then reshape
+                            flat = x.view(b, -1)
+                            needed = self.expected_seq_len * self.expected_n_mels
+                            if flat.shape[1] < needed:
+                                pad = torch.zeros((b, needed - flat.shape[1]), dtype=x.dtype, device=x.device)
+                                flat = torch.cat([flat, pad], dim=1)
+                            elif flat.shape[1] > needed:
+                                flat = flat[:, :needed]
+                            x = flat.view(b, self.expected_seq_len, self.expected_n_mels)
+
+                else:
+                    raise ValueError(f"Unexpected mel_spec dim: {x.dim()}")
+
+                # Move to model device and dtype
+                model_device = next(self.model.parameters()).device
+                x = x.to(device=model_device, dtype=next(self.model.parameters()).dtype)
+
+                # encoder expects (batch, seq_len, feature)
                 encoder_outputs = self.model.model.encoder(x, return_dict=True)
-                # last_hidden_state shape: (batch, seq_len, dim)
                 return encoder_outputs.last_hidden_state
 
         pretrained_model = HuggingFaceWhisperWrapper(hf_model)
