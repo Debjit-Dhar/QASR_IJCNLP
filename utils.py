@@ -13,6 +13,7 @@ import json
 import os
 import jiwer
 import editdistance
+from datetime import datetime
 
 def calculate_cer(predictions, targets):
     """Calculate Character Error Rate using editdistance library"""
@@ -73,10 +74,49 @@ def levenshtein_distance_chars(s1, s2):
     return editdistance.eval(s1, s2)
 
 def levenshtein_distance_words(s1, s2):
-    """Calculate Levenshtein distance between word lists (DEPRECATED - use editdistance)"""
+    """Calculate Levenshtein distance between word lists (DEPRECATED - use editdistance.eval() instead.)"""
     import warnings
     warnings.warn("levenshtein_distance_words is deprecated. Use editdistance.eval() instead.", DeprecationWarning)
     return editdistance.eval(s1, s2)
+
+def levenshtein_distance_chars_pure(str1, str2):
+    """Pure Python implementation of Levenshtein distance between character strings"""
+    if len(str1) < len(str2):
+        return levenshtein_distance_chars_pure(str2, str1)
+    
+    if len(str2) == 0:
+        return len(str1)
+    
+    previous_row = list(range(len(str2) + 1))
+    for i, c1 in enumerate(str1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(str2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    
+    return previous_row[-1]
+
+def calculate_cer_pure(predictions, targets):
+    """Calculate Character Error Rate using pure Python implementation"""
+    if not predictions or not targets:
+        return 1.0
+    
+    total_edits = 0
+    total_chars = 0
+    
+    for pred, target in zip(predictions, targets):
+        if isinstance(pred, str) and isinstance(target, str):
+            ed = levenshtein_distance_chars_pure(pred, target)
+            total_edits += ed
+            total_chars += len(target)
+    
+    if total_chars == 0:
+        return 1.0
+    
+    return total_edits / total_chars
 
 def preprocess_audio_for_whisper(audio, sample_rate=16000):
     """Preprocess audio for Whisper model"""
@@ -364,3 +404,70 @@ def print_epoch_results(epoch, total_epochs, train_loss, val_loss, val_cer=None,
         print(f'Learning Rate: {lr:.6f}')
     
     print('-' * 60)
+
+def save_model(model, filepath, training_history=None, epoch=None, metric_value=None, metric_type='checkpoint'):
+    """
+    Save a PyTorch model with additional metadata.
+    
+    Args:
+        model: PyTorch model to save
+        filepath: Path where to save the model
+        training_history: Training history dictionary
+        epoch: Current training epoch
+        metric_value: Value of the metric (CER, WER, etc.)
+        metric_type: Type of save ('cer', 'wer', 'checkpoint', 'final')
+    """
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    
+    # Prepare save data
+    save_data = {
+        'model_state_dict': model.state_dict(),
+        'model_info': {
+            'epoch': epoch,
+            'metric_value': metric_value,
+            'metric_type': metric_type,
+            'save_timestamp': datetime.now().isoformat()
+        }
+    }
+    
+    # Add training history if provided
+    if training_history:
+        save_data['training_history'] = training_history
+    
+    # Save the model
+    torch.save(save_data, filepath)
+    print(f"💾 Model saved to: {filepath}")
+
+def load_model(model, filepath, device='cpu'):
+    """
+    Load a PyTorch model from a saved file.
+    
+    Args:
+        model: PyTorch model to load weights into
+        filepath: Path to the saved model file
+        device: Device to load the model on
+        
+    Returns:
+        Tuple of (model, training_history, model_info)
+    """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Model file not found: {filepath}")
+    
+    # Load the saved data
+    checkpoint = torch.load(filepath, map_location=device)
+    
+    # Load model state dict
+    if 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print(f"✅ Model weights loaded from: {filepath}")
+    else:
+        # Fallback for older format
+        model.load_state_dict(checkpoint)
+        print(f"✅ Model weights loaded (legacy format) from: {filepath}")
+    
+    # Extract additional information
+    training_history = checkpoint.get('training_history', {})
+    model_info = checkpoint.get('model_info', {})
+    
+    return model, training_history, model_info
