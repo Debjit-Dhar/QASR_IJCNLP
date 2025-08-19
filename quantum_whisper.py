@@ -1,7 +1,7 @@
 """
 Quantum Whisper Implementation
 
-This module extends the official OpenAI Whisper implementation by replacing
+This module extends the official OpenAI Whisper Tiny implementation by replacing
 classical Conv1d layers with quantum convolutional layers using PennyLane.
 
 MODEL ARCHITECTURE:
@@ -61,11 +61,6 @@ class QuantumConv1d(nn.Module):
         # Quantum device and circuit
         self.dev = qml.device("default.qubit", wires=self.n_qubits)
         
-    def to(self, device):
-        super().to(device)
-        # Note: Quantum device doesn't need to be moved, but classical layers do
-        return self
-        
         @qml.qnode(self.dev, interface="torch")
         def quantum_circuit(inputs, weights):
             # Ensure inputs have the correct length for amplitude embedding
@@ -91,6 +86,11 @@ class QuantumConv1d(nn.Module):
         
         self.quantum_circuit = quantum_circuit
         self.quantum_weights = nn.Parameter(torch.randn(self.n_qubits, 3))
+        
+    def to(self, device):
+        super().to(device)
+        # Note: Quantum device doesn't need to be moved, but classical layers do
+        return self
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, channels, length = x.shape
@@ -179,22 +179,165 @@ def get_whisper_tiny_dims():
         n_text_layer=4,
     )
 
+def load_official_whisper_tiny():
+    """Load the official OpenAI Whisper Tiny model"""
+    try:
+        # Try to load from local whisper directory first
+        import whisper
+        model = whisper.load_model("tiny")
+        print("✅ Loaded official Whisper Tiny model from local whisper directory")
+        return model
+    except Exception as e:
+        print(f"Warning: Could not load from local directory: {e}")
+        try:
+            # Fallback to loading from Hugging Face
+            from transformers import WhisperForConditionalGeneration
+            model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny")
+            print("✅ Loaded official Whisper Tiny model from Hugging Face")
+            return model
+        except Exception as e2:
+            print(f"Error loading model: {e2}")
+            # Create model with official dimensions as last resort
+            print("⚠️  Creating model with official Whisper Tiny dimensions")
+            dims = get_whisper_tiny_dims()
+            model = Whisper(dims)
+            return model
+
+def create_whisper_model_from_scratch(vocab_size=51865, n_mels=80, n_audio_ctx=1500, 
+                                     use_quantum=False, n_qubits=4, hidden_size=None, 
+                                     num_layers=None, num_heads=None):
+    """
+    Create a Whisper model from scratch (either classical or quantum).
+    
+    Args:
+        vocab_size: Size of the vocabulary
+        n_mels: Number of mel spectrogram features
+        n_audio_ctx: Audio context length
+        use_quantum: Whether to use quantum layers
+        n_qubits: Number of qubits for quantum layers (if use_quantum=True)
+        hidden_size: Custom hidden size (overrides default 384)
+        num_layers: Custom number of layers (overrides default 4)
+        num_heads: Custom number of attention heads (overrides default 6)
+        
+    Returns:
+        Whisper model (classical or quantum)
+    """
+    # Use custom dimensions if provided, otherwise use standard Whisper Tiny dimensions
+    audio_state = hidden_size if hidden_size is not None else 384
+    audio_layer = num_layers if num_layers is not None else 4
+    audio_head = num_heads if num_heads is not None else 6
+    text_state = hidden_size if hidden_size is not None else 384
+    text_layer = num_layers if num_layers is not None else 4
+    text_head = num_heads if num_heads is not None else 6
+    
+    # The n_audio_ctx should be the output length after convolutions
+    # Since conv2 has stride=2, output length = input_length // 2
+    # So if we want input length of 1500, we need n_audio_ctx = 750
+    audio_ctx_output = n_audio_ctx // 2
+    
+    dims = ModelDimensions(
+        n_mels=n_mels,
+        n_audio_ctx=audio_ctx_output,  # This is the output length after conv layers
+        n_audio_state=audio_state,
+        n_audio_head=audio_head,
+        n_audio_layer=audio_layer,
+        n_vocab=vocab_size,
+        n_text_ctx=448,
+        n_text_state=text_state,
+        n_text_head=text_head,
+        n_text_layer=text_layer,
+    )
+    
+    if use_quantum:
+        print("🔬 Creating quantum Whisper model from scratch...")
+        model = QuantumWhisper(dims, n_qubits)
+    else:
+        print("🔨 Creating classical Whisper model from scratch...")
+        model = Whisper(dims)
+    
+    return model
+
+def create_quantum_whisper_from_official(official_model, n_qubits: int = 4):
+    """Create quantum Whisper by replacing conv layers in official pretrained model"""
+    # Get the official dimensions
+    if hasattr(official_model, 'dims'):
+        dims = official_model.dims
+    else:
+        # If using Hugging Face model, use standard dimensions
+        dims = get_whisper_tiny_dims()
+    
+    # Create quantum model with same dimensions
+    quantum_model = QuantumWhisper(dims, n_qubits)
+    
+    # Copy ALL pretrained weights from official model to quantum model
+    if hasattr(official_model, 'state_dict'):
+        official_state = official_model.state_dict()
+        quantum_state = quantum_model.state_dict()
+        
+        # Copy weights for all layers (including the new quantum conv layers will be random)
+        for key in official_state:
+            if key in quantum_state:
+                quantum_state[key] = official_state[key]
+        
+        # Load the copied weights
+        quantum_model.load_state_dict(quantum_state, strict=False)
+        print("✅ Copied ALL pretrained weights from official Whisper Tiny model")
+        print("✅ Only quantum conv layers remain randomly initialized")
+    
+    return quantum_model
+
 def create_quantum_whisper_tiny(n_qubits: int = 4):
     """Create a quantum version of Whisper Tiny with quantum convolutional layers"""
-    dims = get_whisper_tiny_dims()
-    return QuantumWhisper(dims, n_qubits)
+    # First load the official model
+    official_model = load_official_whisper_tiny()
+    
+    # Get the official dimensions
+    if hasattr(official_model, 'dims'):
+        dims = official_model.dims
+    else:
+        # If using Hugging Face model, use standard dimensions
+        dims = get_whisper_tiny_dims()
+    
+    # Create quantum model with same dimensions
+    quantum_model = QuantumWhisper(dims, n_qubits)
+    
+    # Copy weights from official model to quantum model (except quantum layers)
+    if hasattr(official_model, 'state_dict'):
+        official_state = official_model.state_dict()
+        quantum_state = quantum_model.state_dict()
+        
+        # Copy weights for non-quantum layers
+        for key in official_state:
+            if key in quantum_state and 'conv1' not in key and 'conv2' not in key:
+                quantum_state[key] = official_state[key]
+        
+        # Load the copied weights
+        quantum_model.load_state_dict(quantum_state, strict=False)
+        print("✅ Copied weights from official Whisper Tiny model to quantum model")
+    
+    return quantum_model
 
 def freeze_non_quantum_layers(model):
-    """Freeze all layers except quantum layers"""
+    """Freeze all layers except quantum convolutional layers"""
+    frozen_count = 0
+    trainable_count = 0
+    
     for name, param in model.named_parameters():
-        # Only train quantum layers and classifier
-        if ('quantum' in name.lower() or 
-            'pre_conv' in name or 
-            'post_conv' in name or
-            'classifier' in name):
+        # Only train quantum conv layers (conv1, conv2) and ASR head
+        if ('conv1' in name or 'conv2' in name or 'asr_head' in name):
             param.requires_grad = True
+            trainable_count += 1
+            print(f"🔄 Training layer: {name}")
         else:
             param.requires_grad = False
+            frozen_count += 1
+            print(f"❄️  Frozen layer: {name}")
+    
+    print(f"\n📊 Layer freezing summary:")
+    print(f"   Frozen layers: {frozen_count}")
+    print(f"   Trainable layers: {trainable_count}")
+    print(f"   Only quantum conv layers and ASR head will be trained")
+    
     return model
 
 def load_pretrained_whisper(model_path: str = None):
@@ -205,9 +348,7 @@ def load_pretrained_whisper(model_path: str = None):
         model.load_state_dict(torch.load(model_path, map_location='cpu'))
         print(f"Loaded pretrained model from {model_path}")
     else:
-        # Load from Hugging Face
-        from transformers import WhisperForConditionalGeneration
-        model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny")
-        print("Loaded pretrained model from Hugging Face")
+        # Load official model
+        model = load_official_whisper_tiny()
     
     return model

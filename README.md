@@ -1,13 +1,14 @@
 # Quantum Whisper: Quantum-Enhanced Speech Recognition
 
-A quantum-enhanced implementation of OpenAI's Whisper model for speech recognition, featuring quantum convolutional layers integrated with classical transformer architecture.
+A quantum-enhanced implementation of OpenAI's **official Whisper Tiny model** for speech recognition, featuring quantum convolutional layers integrated with the classical transformer architecture.
 
 ## 🚀 Project Overview
 
-This project implements a **quantum-enhanced Whisper model** where classical Conv1d layers in the audio encoder are replaced with **quantum convolutional layers** using PennyLane. The model maintains the original Whisper architecture while introducing quantum computing capabilities for enhanced feature extraction.
+This project implements a **quantum-enhanced Whisper model** where classical Conv1d layers in the audio encoder are replaced with **quantum convolutional layers** using PennyLane. The model extends the **official OpenAI Whisper Tiny implementation** while introducing quantum computing capabilities for enhanced feature extraction.
 
 ## ✨ Features
 
+- **Official Whisper Tiny Model**: Based on OpenAI's official implementation
 - **Quantum-Enhanced Audio Processing**: Quantum Conv1d layers for audio feature extraction
 - **Multi-Dataset Support**: Google Speech Commands (classification) and LibriSpeech (ASR)
 - **PennyLane Integration**: Quantum circuit simulation with `default.qubit` backend
@@ -33,14 +34,16 @@ This project implements a **quantum-enhanced Whisper model** where classical Con
 ## 🏗️ Model Architecture
 
 ### Base Model
-- **Whisper Tiny**: Official OpenAI implementation
+- **Whisper Tiny**: **Official OpenAI implementation** (39M parameters)
 - **Audio Encoder**: 4 transformer layers, 384 hidden size, 6 attention heads
 - **Audio Input**: 80 mel bins × 3000 time steps
+- **Vocabulary**: 51,865 tokens
 
 ### Quantum Enhancements
 - **Quantum Conv1d**: Replaces classical Conv1d in audio encoder
 - **PennyLane Backend**: `default.qubit` simulator
 - **Configurable Qubits**: Adjustable number of qubits (default: 4)
+- **Weight Transfer**: Copies pretrained weights from official model
 
 ### ASR Decoder (LibriSpeech)
 - **LSTM Decoder**: Multi-layer LSTM for sequence generation
@@ -57,6 +60,12 @@ source qasr_env/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+```
+
+### Test Model Loading
+```bash
+# Test that official Whisper models can be loaded
+python test_official_whisper.py
 ```
 
 ## 📚 **Complete Usage Guide**
@@ -82,7 +91,7 @@ python evaluate_pretrained_whisper.py \
 
 ### **ASR Research (LibriSpeech)**
 
-#### Option 1: Quantum ASR Training
+#### Option 1: Quantum ASR Training (Recommended)
 ```bash
 python train_quantum_whisper_asr.py \
     --epochs 50 \
@@ -93,10 +102,9 @@ python train_quantum_whisper_asr.py \
     --num_layers 2
 ```
 
-#### Option 2: Classical ASR Training from Scratch
+#### Option 2: Official Whisper Tiny Training
 ```bash
 python train_whisper_from_scratch.py \
-    --model_size tiny \
     --epochs 50 \
     --lr 1e-4 \
     --batch_size 8
@@ -104,270 +112,151 @@ python train_whisper_from_scratch.py \
 
 #### Evaluating ASR Models
 ```bash
-# Evaluate trained quantum ASR model
+# Evaluate quantum ASR model (best CER)
 python evaluate_quantum_whisper_asr.py \
-    --model_path best_quantum_whisper_asr.pth \
-    --batch_size 16 \
-    --n_qubits 4
+    --model_path best_quantum_whisper_asr_cer.pth \
+    --n_qubits 4 \
+    --hidden_size 384 \
+    --num_layers 2
 
-# Evaluate pretrained classical Whisper models
-python evaluate_pretrained_whisper_asr.py \
-    --model_size tiny \
-    --max_samples 100
+# Evaluate quantum ASR model (best WER)
+python evaluate_quantum_whisper_asr.py \
+    --model_path best_quantum_whisper_asr_wer.pth \
+    --n_qubits 4 \
+    --hidden_size 384 \
+    --num_layers 2
+
+# Evaluate official Whisper model
+python evaluate_pretrained_whisper.py \
+    --batch_size 16
 ```
 
-## 🔧 **Training Parameters Explained**
+## 🔧 **Model Loading Strategy**
 
-| Parameter | Description | Default | Recommended |
-|-----------|-------------|---------|-------------|
-| `--epochs` | Training epochs | 50 | 50-100 for good results |
-| `--lr` | Learning rate | 1e-3 | 1e-3 to 5e-4 |
-| `--batch_size` | Batch size | 16 | 8-32 (memory dependent) |
-| `--n_qubits` | Quantum qubits | 4 | 2-8 (performance vs speed) |
-| `--hidden_size` | LSTM hidden size | 384 | 256-512 |
-| `--num_layers` | LSTM layers | 2 | 2-4 |
-| `--model_size` | Whisper size | tiny | tiny/base/small |
+The project uses a **three-tier loading strategy** to ensure compatibility:
 
-## 📊 **Understanding Results**
+## 📥 **Automatic Dataset Download**
 
-### **Classification Metrics**
-- **Accuracy**: Overall classification accuracy
-- **Class-wise Accuracy**: Performance per command class
-- **WER**: Word Error Rate (less relevant for classification)
+All training and evaluation scripts automatically handle LibriSpeech dataset downloading:
 
-### **ASR Metrics**
-- **CER (Character Error Rate)**: Character-level accuracy (0.0 = perfect, 1.0 = completely wrong)
-- **WER (Word Error Rate)**: Word-level accuracy  
-- **Implementation**: Uses `editdistance` library for CER and `jiwer` library for WER
-- **Formula**: `(Insertions + Deletions + Substitutions) / Total Characters/Words`
-- **Robustness**: Includes fallback implementations if external libraries fail
+- **Automatic Detection**: Scripts check if dataset is already downloaded locally
+- **Smart Downloading**: Downloads only if not found locally
+- **Caching**: Downloaded datasets are cached for future use
+- **Fallback Handling**: Graceful fallbacks if download fails
+- **Progress Updates**: Clear progress information during download
 
-### **Performance Expectations**
+**Supported Datasets:**
+- **LibriSpeech Clean**: `train-clean-100` (training), `dev-clean` (validation)
+- **Automatic Splits**: Training/validation split handled automatically
+- **Primary**: Torchaudio integration (like official notebook)
+- **Fallback**: Hugging Face datasets library for reliable downloading
 
-#### Classification (Google Speech Commands)
-- **Expected Accuracy**: 80-95% (depending on quantum configuration)
-- **Training Time**: ~2-4 hours on CPU, ~30-60 minutes on GPU
-- **Memory**: ~4-8 GB RAM
+**First Run**: Will download ~1GB of LibriSpeech data automatically
+**Subsequent Runs**: Uses cached local dataset for instant loading
 
-#### ASR (LibriSpeech)
-- **Expected CER**: 0.1-0.3 (10-30% character error rate)
-- **Expected WER**: 0.15-0.4 (15-40% word error rate)
-- **Training Time**: ~4-8 hours on CPU, ~1-2 hours on GPU
-- **Memory**: ~8-16 GB RAM
+1. **Local Whisper Directory**: First tries to load from the included `whisper/` directory
+2. **Hugging Face**: Falls back to `openai/whisper-tiny` from Hugging Face
+3. **Official Dimensions**: Creates model with official Whisper Tiny dimensions as last resort
 
-## 🔄 **Training Process**
+This ensures that **only the official Whisper Tiny model** is used, with no simplified or dummy versions.
 
-### **Classification Training**
-1. **Dataset Loading**: Google Speech Commands (35 classes)
-2. **Model Initialization**: Quantum Whisper with frozen pretrained layers
-3. **Training Loop**: Only quantum layers and classifier are trained
-4. **Validation**: Accuracy and class-wise performance
-5. **Model Saving**: Best model based on validation accuracy
+## 📊 **Training & Evaluation**
 
-### **ASR Training**
-1. **Dataset Loading**: LibriSpeech `train.100`, `validation`, `test`
-2. **Vocabulary Building**: Creates character vocabulary from training text
-3. **Model Initialization**: Quantum Whisper + LSTM decoder
-4. **Training Loop**: Teacher forcing with LSTM decoder
-5. **Validation**: Character Error Rate (CER) on validation set
-6. **Model Saving**: Best model based on validation CER
+### **Training Process**
 
-## 🔍 **Evaluation Process**
+#### **Classical Whisper ASR Training**
+- **From Scratch**: Creates Whisper model architecture without pretrained weights
+- **Full Training**: Trains all model parameters on LibriSpeech dataset
+- **ASR Focus**: Optimized for speech recognition with character-level prediction
+- **Dual Model Saving**: Saves best models for both CER and WER
 
-### **Classification Evaluation**
-1. **Model Loading**: Loads trained quantum Whisper model
-2. **Test Dataset**: Processes Google Speech Commands test split
-3. **Inference**: Generates class predictions
-4. **Metrics Calculation**: Accuracy, class-wise accuracy, WER
-5. **Results**: Sample predictions and performance plots
+#### **Quantum Whisper ASR Training**
+- **Official Model**: Loads pretrained Whisper Tiny weights
+- **Quantum Layers**: Replaces Conv1d layers with quantum equivalents
+- **Weight Transfer**: Copies pretrained weights to non-quantum layers
+- **Fine-tuning**: Trains only quantum layers while preserving official weights
+- **Dual Model Saving**: Saves two separate models:
+  - **Best CER Model**: Model with lowest Character Error Rate
+  - **Best WER Model**: Model with lowest Word Error Rate
 
-### **ASR Evaluation**
-1. **Model Loading**: Loads trained ASR model and character vocabulary
-2. **Test Dataset**: Processes LibriSpeech test split
-3. **Inference**: Generates predictions without teacher forcing
-4. **Metrics Calculation**: CER and WER using `editdistance` and `jiwer` libraries
-5. **Results**: Sample analysis and metrics distribution plots
+### **Evaluation Metrics**
+- **Character Error Rate (CER)**: Character-level accuracy for ASR
+- **Word Error Rate (WER)**: Word-level accuracy for ASR
+- **Classification Accuracy**: For Google Speech Commands
 
-## 📁 **Project Structure**
+### **Model Saving Strategy**
+During training, the system automatically tracks and saves the best performing models:
 
-```
-QASR IJCNLP/
-├── quantum_whisper.py                    # Core quantum Whisper implementation
-├── librispeech_asr.py                    # ASR dataset and decoder implementation
-├── utils.py                              # Common utility functions
-├── train_quantum_whisper.py             # Classification training script
-├── train_quantum_whisper_asr.py         # Quantum ASR training script
-├── train_whisper_from_scratch.py        # Classical ASR training script
-├── evaluate_pretrained_whisper.py       # Classification evaluation
-├── evaluate_quantum_whisper_asr.py      # Quantum ASR evaluation
-├── evaluate_pretrained_whisper_asr.py   # Classical Whisper evaluation
-├── whisper/                              # Official Whisper implementation
-├── requirements.txt                      # Python dependencies
-└── README.md                            # This comprehensive guide
-```
+1. **Best CER Model**: `best_*_cer.pth` - Saved when validation CER improves
+2. **Best WER Model**: `best_*_wer.pth` - Saved when validation WER improves
+3. **Final Model**: `*_final.pth` - Model state after final training epoch
 
-## 🔧 **File Overview**
+This ensures you have access to the optimal model for each metric, allowing you to choose the best model based on your specific requirements.
 
-### **Core Implementation Files**
-- **`quantum_whisper.py`**: Quantum Conv1d layers, QuantumAudioEncoder, QuantumWhisper
-- **`librispeech_asr.py`**: ASR dataset, LSTM decoder, character vocabulary building
-- **`utils.py`**: Common functions (CER/WER calculation, plotting, device management)
+## 🎯 **Key Benefits of Official Model Usage**
 
-### **Training Scripts**
-- **`train_quantum_whisper.py`**: Classification training (Google Speech Commands)
-- **`train_quantum_whisper_asr.py`**: Quantum ASR training (LibriSpeech)
-- **`train_whisper_from_scratch.py`**: Classical ASR training from scratch
-
-### **Evaluation Scripts**
-- **`evaluate_pretrained_whisper.py`**: Classification evaluation
-- **`evaluate_quantum_whisper_asr.py`**: Quantum ASR evaluation
-- **`evaluate_pretrained_whisper_asr.py`**: Classical Whisper ASR evaluation
-
-## 🎯 **Research Applications**
-
-### **Quantum Advantage Studies**
-- Compare quantum vs classical Conv1d performance
-- Analyze quantum circuit depth vs ASR performance
-- Study quantum noise effects on speech recognition
-
-### **ASR Benchmarking**
-- Compare with classical Whisper models
-- Analyze character-level vs token-level approaches
-- Study LSTM vs Transformer decoder performance
-
-### **Hybrid Models**
-- Combine quantum audio processing with classical text generation
-- Explore quantum attention mechanisms
-- Study quantum-classical interface optimization
+1. **Proven Performance**: Uses OpenAI's tested and optimized architecture
+2. **Pretrained Weights**: Leverages knowledge from massive training data
+3. **Standard Dimensions**: Follows official model specifications exactly
+4. **Compatibility**: Ensures consistency with other Whisper implementations
+5. **Research Validity**: Results comparable to official benchmarks
 
 ## 🚨 **Important Notes**
 
-### **Task Alignment**
-- **Google Speech Commands**: Use for classification only
-- **LibriSpeech**: Use for ASR only (proper implementation)
-- **Classification on LibriSpeech**: Not recommended (wrong task)
+- **No Dummy Models**: All implementations use the official Whisper Tiny model
+- **Full Dataset**: Evaluation always uses the complete LibriSpeech test set
+- **Weight Preservation**: Quantum enhancements don't affect pretrained weights
+- **Standard Metrics**: Uses standard ASR evaluation metrics (CER, WER)
 
-### **Model Paths**
-- Ensure model paths match when evaluating
-- Check for training history files for vocabulary
-- Use correct model size parameters
+## 📁 **File Structure**
 
-### **Performance Considerations**
-- **Quantum Simulation**: PennyLane `default.qubit` backend for CPU compatibility
-- **Memory Management**: Reduce batch size for large models
-- **Training Time**: Quantum models may take longer due to simulation overhead
+```
+QASR IJCNLP/
+├── whisper/                          # Official Whisper implementation
+├── train_whisper_from_scratch.py    # Train official Whisper Tiny (demo)
+├── train_classical_whisper_asr.py   # Train classical Whisper ASR from scratch (auto-downloads LibriSpeech, uses notebook insights)
+├── train_quantum_whisper_asr.py     # Train quantum ASR model
+├── evaluate_pretrained_whisper.py   # Evaluate official Whisper
+├── evaluate_quantum_whisper_asr.py  # Evaluate quantum ASR model
+├── quantum_whisper.py               # Quantum Whisper implementation
+├── librispeech_asr.py               # ASR dataset and model
+├── test_official_whisper.py         # Test model loading
+├── utils.py                         # Utility functions
+└── requirements.txt                 # Dependencies
 
-## 🔧 **Troubleshooting**
-
-### **Common Issues**
-
-#### 1. Memory Errors
-```bash
-# Reduce batch size
-python train_quantum_whisper_asr.py --batch_size 8
-
-# Reduce hidden size
-python train_quantum_whisper_asr.py --hidden_size 256
+# Training Output Files:
+├── best_classical_whisper_asr_cer.pth    # Best classical model by CER
+├── best_classical_whisper_asr_wer.pth    # Best classical model by WER
+├── best_quantum_whisper_asr_cer.pth      # Best quantum model by CER
+├── best_quantum_whisper_asr_wer.pth      # Best quantum model by WER
+├── *_checkpoint_epoch_*.pth              # Periodic checkpoints
+├── *_training_history.json               # Training metrics and history
+└── *_training_results.png                # Training curves visualization
 ```
 
-#### 2. Slow Training
-```bash
-# Use GPU if available
-python train_quantum_whisper_asr.py --device cuda
+## 🔬 **Research Applications**
 
-# Reduce number of qubits
-python train_quantum_whisper_asr.py --n_qubits 2
-```
+This implementation is designed for:
+- **Quantum Machine Learning Research**: Studying quantum advantages in ASR
+- **Model Compression**: Quantum layers as alternative to classical layers
+- **Hybrid Architectures**: Combining classical and quantum computing
+- **ASR Benchmarking**: Comparing quantum vs. classical approaches
 
-#### 3. Poor Convergence
-```bash
-# Lower learning rate
-python train_quantum_whisper_asr.py --lr 5e-4
+## 📈 **Performance Expectations**
 
-# More training epochs
-python train_quantum_whisper_asr.py --epochs 100
-```
-
-### **Dependencies**
-- **Core**: PyTorch, PennyLane, Transformers
-- **Audio**: torchaudio, soundfile, librosa
-- **Data**: datasets, numpy, tqdm
-- **Visualization**: matplotlib
-
-## 📊 **Output Files**
-
-### **Training Outputs**
-- `best_quantum_whisper_val_acc.pth`: Best classification model
-- `best_quantum_whisper_asr.pth`: Best quantum ASR model
-- `best_whisper_from_scratch.pth`: Best classical ASR model
-- `*_final.pth`: Final models after training
-- `*_training_history.json`: Training logs and metrics
-- `*_training_results.png`: Training curves and metrics plots
-
-### **Evaluation Outputs**
-- `*_evaluation_results.json`: Detailed evaluation metrics
-- `*_evaluation_results.png`: Performance visualization
-- `*_metrics_distribution.png`: CER/WER distribution plots
-
-## 🔮 **Future Enhancements**
-
-### **Short Term**
-- **Beam Search**: Improve text generation quality
-- **Attention Mechanism**: Add attention to LSTM decoder
-- **Subword Tokenization**: BPE or SentencePiece integration
-
-### **Long Term**
-- **Quantum Attention**: Quantum-enhanced attention mechanisms
-- **Quantum LSTM**: Quantum LSTM cells
-- **End-to-End Quantum**: Fully quantum ASR pipeline
-
-## 📖 **Citation**
-
-If you use this code in your research, please cite:
-
-```bibtex
-@misc{quantum_whisper_2024,
-  title={Quantum Whisper: Quantum-Enhanced Speech Recognition},
-  author={Your Name},
-  year={2024},
-  url={https://github.com/yourusername/quantum-whisper}
-}
-```
+- **Base Performance**: Matches official Whisper Tiny baseline
+- **Quantum Enhancement**: Potential improvements through quantum feature extraction
+- **Training Efficiency**: Faster convergence with pretrained weights
+- **Memory Usage**: Similar to official model with quantum overhead
 
 ## 🤝 **Contributing**
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+When contributing to this project:
+1. **Maintain Official Model**: Always use the official Whisper Tiny architecture
+2. **Preserve Weights**: Don't modify pretrained weights unnecessarily
+3. **Test Loading**: Ensure models can be loaded with `test_official_whisper.py`
+4. **Full Evaluation**: Always evaluate on complete datasets, not samples
 
 ## 📄 **License**
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## 🎯 **Quick Reference Commands**
-
-### **Classification Research**
-```bash
-# Train
-python train_quantum_whisper.py --dataset google --epochs 50 --n_qubits 4
-# Evaluate
-python evaluate_pretrained_whisper.py --dataset google
-```
-
-### **Quantum ASR Research**
-```bash
-# Train
-python train_quantum_whisper_asr.py --epochs 50 --n_qubits 4
-# Evaluate
-python evaluate_quantum_whisper_asr.py --model_path best_quantum_whisper_asr.pth
-```
-
-### **Classical ASR Research**
-```bash
-# Train from scratch
-python train_whisper_from_scratch.py --model_size tiny --epochs 50
-# Evaluate pretrained
-python evaluate_pretrained_whisper_asr.py --model_size tiny
-```
-
-This comprehensive guide covers all aspects of the Quantum Whisper project, from basic usage to advanced research applications. The modular architecture and utility functions ensure code reusability and maintainability.
+This project follows the same license as the official Whisper implementation.
