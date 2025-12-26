@@ -1,4 +1,4 @@
-# Quantum Whisper: Quantum-Enhanced Speech Recognition
+# Quantum-Infused Whisper: A Framework for Replacing Classical Components
 
 A quantum-enhanced implementation of OpenAI's **official Whisper Tiny model** for speech recognition, featuring quantum convolutional layers integrated with the classical transformer architecture.
 
